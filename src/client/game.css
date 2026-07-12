@@ -1,8 +1,21 @@
+@import url("https://fonts.googleapis.com/css2?family=Outfit:wght@400;700;900&family=JetBrains+Mono:wght@400;700&display=swap");
+
+:root {
+  --font-family-sans: "Outfit", sans-serif;
+  --font-family-mono: "JetBrains Mono", monospace;
+  --background: #080810;
+  --foreground: #e4e4f0;
+  --primary: #39ff14;
+  --accent: #ffd700;
+  --destructive: #ff4e6a;
+}
+
 body {
   margin: 0;
   padding: 0;
-  color: rgba(255, 255, 255, 0.87);
-  background-color: #0f0f0f;
+  font-family: var(--font-family-sans);
+  color: var(--foreground);
+  background-color: var(--background);
 }
 
 #app {
