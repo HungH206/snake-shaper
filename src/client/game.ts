@@ -4,6 +4,7 @@ import { HubScene } from './scenes/HubScene';
 import { TutorialScene } from './scenes/TutorialScene';
 import { DailyScene } from './scenes/DailyScene';
 import { DesignerScene } from './scenes/DesignerScene';
+import { CommunityScene } from './scenes/CommunityScene';
 import { SnakeGameScene } from './scenes/SnakeGameScene';
 import * as Phaser from 'phaser';
 import { AUTO, Game } from 'phaser';
@@ -15,12 +16,14 @@ const config: Phaser.Types.Core.GameConfig = {
   scale: {
     mode: Phaser.Scale.FIT,
     autoCenter: Phaser.Scale.CENTER_BOTH,
-    width: 1024,
-    height: 768,
+    width: 540,
+    height: 780,
   },
-  scene: [Boot, Preloader, HubScene, TutorialScene, DailyScene, DesignerScene, SnakeGameScene],
+  scene: [Boot, Preloader, HubScene, TutorialScene, DailyScene, DesignerScene, CommunityScene, SnakeGameScene],
 };
 
 export const StartGame = (parent: string) => {
   return new Game({ ...config, parent });
 };
+
+StartGame('game-container');

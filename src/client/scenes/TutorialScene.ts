@@ -46,11 +46,11 @@ export class TutorialScene extends Scene {
   }
 
   private buildTabs() {
-    const gap = 12;
-    const tabW = 172;
+    const gap = 8;
+    const tabW = 122;
     const tabH = 30;
     const total = LEVELS.length * tabW + (LEVELS.length - 1) * gap;
-    const startX = Math.round((1024 - total) / 2);
+    const startX = Math.round((this.scale.width - total) / 2);
     const y = 18;
 
     LEVELS.forEach((level, index) => {
@@ -58,7 +58,7 @@ export class TutorialScene extends Scene {
       const border = this.add.rectangle(cx, y, tabW, tabH, PALETTE.card, 0.95).setStrokeStyle(1.5, PALETTE.cellBorder);
       const label = this.add.text(cx, y, `${index + 1}. ${level.name}`, {
         fontFamily: FONT.mono,
-        fontSize: '14px',
+        fontSize: '11px',
         color: CSS.mutedForeground,
       }).setOrigin(0.5);
       border.setInteractive({ useHandCursor: true });
@@ -74,9 +74,9 @@ export class TutorialScene extends Scene {
   }
 
   private buildHowTo() {
-    const panelX = 62;
+    const panelX = 18;
     const panelY = 48;
-    const panelW = 1024 - panelX * 2;
+    const panelW = this.scale.width - panelX * 2;
     const panelH = 158;
     this.add.rectangle(panelX, panelY, panelW, panelH, PALETTE.card, 0.9).setOrigin(0, 0).setStrokeStyle(1, PALETTE.cellBorder);
 

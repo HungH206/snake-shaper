@@ -5,37 +5,119 @@
   --font-family-mono: "JetBrains Mono", monospace;
   --background: #080810;
   --foreground: #e4e4f0;
+  --muted: #7a7a9a;
+  --card: #10101e;
+  --cell: #222233;
   --primary: #39ff14;
   --accent: #ffd700;
-  --destructive: #ff4e6a;
+  --cyan: #00e5ff;
 }
 
 * {
   box-sizing: border-box;
-  margin: 0;
-  padding: 0;
-  font-family: var(--font-family-sans);
 }
 
 html,
 body {
   width: 100%;
   height: 100%;
+  margin: 0;
   overflow: hidden;
 }
 
 .app {
-  width: 100vw;
-  height: 100vh;
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: 14px;
+  color: var(--foreground);
+  background: var(--background);
+  font-family: var(--font-family-sans);
+}
+
+.splash-card {
+  width: min(100%, 560px);
+  min-height: 168px;
+  display: grid;
+  grid-template-columns: 104px 1fr auto;
+  gap: 16px;
+  align-items: center;
+  padding: 16px;
+  background: var(--card);
+  border: 1.5px solid var(--primary);
+}
+
+.preview-grid {
+  width: 92px;
+  aspect-ratio: 1;
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 4px;
+  padding: 8px;
+  background: #0b0b14;
+  border: 1px solid #3b3b4f;
+}
+
+.preview-grid span {
+  background: var(--cell);
+}
+
+.preview-grid .on {
+  background: var(--primary);
+}
+
+.copy {
+  min-width: 0;
+}
+
+.eyebrow {
+  margin: 0 0 6px;
+  color: var(--cyan);
+  font: 700 12px var(--font-family-mono);
+}
+
+h1 {
+  margin: 0 0 8px;
+  color: var(--primary);
+  font: 900 30px var(--font-family-mono);
+}
+
+p {
   margin: 0;
-  background-color: var(--background);
+  color: var(--muted);
+  font: 400 14px/1.35 var(--font-family-mono);
 }
 
-#game-container {
-  width: 100vw;
-  height: 100vh;
+button {
+  min-width: 112px;
+  height: 44px;
+  border: 1.5px solid var(--accent);
+  color: var(--accent);
+  background: #080810;
+  font: 700 15px var(--font-family-mono);
+  cursor: pointer;
 }
 
-#game-container canvas {
-  display: block;
+button:active {
+  transform: translateY(1px);
+}
+
+@media (max-width: 520px) {
+  .splash-card {
+    grid-template-columns: 82px 1fr;
+  }
+
+  .preview-grid {
+    width: 74px;
+  }
+
+  button {
+    grid-column: 1 / -1;
+    width: 100%;
+  }
+
+  h1 {
+    font-size: 24px;
+  }
 }

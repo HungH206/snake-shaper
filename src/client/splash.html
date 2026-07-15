@@ -7,10 +7,24 @@
       name="viewport"
       content="initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, width=device-width, height=device-height, user-scalable=0"
     />
-    <title>Snake Shaper</title>
+    <title>Lil Shaper - The New Snake</title>
   </head>
   <body class="app">
-    <div id="game-container"></div>
+    <main class="splash-card" aria-label="Lil Shaper preview">
+      <div class="preview-grid" aria-hidden="true">
+        <span></span><span></span><span></span><span></span><span></span>
+        <span></span><span class="on"></span><span class="on"></span><span></span><span></span>
+        <span></span><span></span><span class="on"></span><span class="on"></span><span></span>
+        <span></span><span></span><span></span><span class="on"></span><span class="on"></span>
+        <span></span><span></span><span></span><span></span><span class="on"></span>
+      </div>
+      <section class="copy">
+        <p class="eyebrow">Daily • Designer • Community</p>
+        <h1>Lil Shaper</h1>
+        <p>The New Snake. Trace the silhouette, beat the leaderboard, and play puzzles made by redditors.</p>
+      </section>
+      <button type="button" data-play>Play Wide</button>
+    </main>
     <script type="module" src="splash.ts" defer></script>
   </body>
 </html>

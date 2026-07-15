@@ -2,6 +2,6 @@ import { reddit } from '@devvit/web/server';
 
 export const createPost = async () => {
   return await reddit.submitCustomPost({
-    title: 'snake-shaper',
+    title: 'Lil Shaper - The New Snake',
   });
 };

@@ -1,5 +1,6 @@
 import * as Phaser from 'phaser';
 import { Scene, GameObjects } from 'phaser';
+import { navigateTo, showShareSheet, showToast } from '@devvit/web/client';
 import {
   GRID_SIZE,
   MAX_REWINDS,
@@ -10,7 +11,16 @@ import {
   type LevelConfig,
 } from '../shared/puzzles';
 import { PALETTE, CSS, FONT } from '../shared/theme';
-import type { LeaderboardResponse, LeaderboardSubmitRequest } from '../shared/api';
+import { buildChallengeShareText } from '../shared/share';
+import type {
+  CommunityPuzzleSubmitRequest,
+  CommunityPuzzleSubmitResponse,
+  LeaderboardResponse,
+  LeaderboardScope,
+  LeaderboardSubmitRequest,
+  ShareAttemptRequest,
+  ShareAttemptResponse,
+} from '../shared/api';
 
 // ---------------------------------------------------------------------------
 // Pure game engine (moved out of SnakeGameScene so every screen can share it).
@@ -138,20 +148,19 @@ function reducer(state: SnakeShaperState, action: Action): SnakeShaperState {
 }
 
 // ---------------------------------------------------------------------------
-// Layout — compact so header + board + controls fit the 1024x768 design frame.
+// Layout — compact so header + board + controls fit the mobile-first design frame.
 // ---------------------------------------------------------------------------
 
 const CELL = 26;
 const GAP = 3;
 const STEP = CELL + GAP;
 const BOARD = GRID_SIZE * CELL + (GRID_SIZE - 1) * GAP;
-const CENTER_X = 512;
 
-interface OverlayButton {
+type OverlayButton = {
   bg: GameObjects.Rectangle;
   text: GameObjects.Text;
   width: number;
-}
+};
 
 export interface PlayFieldOptions {
   level: LevelConfig;
@@ -163,6 +172,10 @@ export interface PlayFieldOptions {
   onExit?: () => void;
   /** When true, wins submit a score and the win overlay shows a Leaderboard button. */
   leaderboard?: boolean;
+  /** When true, the win overlay can publish this puzzle to the Community catalog. */
+  publishable?: boolean;
+  /** Called after publishing a puzzle to the Community catalog. */
+  onPublished?: () => void;
 }
 
 /**
@@ -176,13 +189,14 @@ export class PlayField {
   private state: SnakeShaperState;
   private onComplete: (() => void) | undefined;
   private onExit: (() => void) | undefined;
+  private onPublished: (() => void) | undefined;
 
   private readonly boardX: number;
   private readonly boardY: number;
 
   private root: GameObjects.Container;
   private boardGroup!: GameObjects.Container;
-  private pathGraphics!: GameObjects.Graphics;
+  private snakeGraphics!: GameObjects.Graphics;
   private cells: GameObjects.Rectangle[] = [];
 
   private statusText!: GameObjects.Text;
@@ -197,15 +211,25 @@ export class PlayField {
   private btnPrimary!: OverlayButton;
   private btnClose!: OverlayButton;
   private btnLeaderboard!: OverlayButton;
+  private btnShare!: OverlayButton;
+  private btnPublish!: OverlayButton;
   private overlayDismissed = false;
   private moveCount = 0;
 
   private readonly leaderboardEnabled: boolean;
+  private readonly publishEnabled: boolean;
+  private publishInFlight = false;
   private lbPanel!: GameObjects.Container;
   private lbTitle!: GameObjects.Text;
   private lbStatus!: GameObjects.Text;
   private lbRows: GameObjects.Text[] = [];
   private lbYou!: GameObjects.Text;
+  private lbScope: LeaderboardScope = 'daily';
+  private lbScopeButtons: Array<{
+    scope: LeaderboardScope;
+    bg: GameObjects.Rectangle;
+    text: GameObjects.Text;
+  }> = [];
 
   private keyHandler: (event: KeyboardEvent) => void;
   private pointerUpHandler: () => void;
@@ -215,10 +239,12 @@ export class PlayField {
     this.level = opts.level;
     this.onComplete = opts.onComplete;
     this.onExit = opts.onExit;
+    this.onPublished = opts.onPublished;
     this.leaderboardEnabled = opts.leaderboard ?? false;
+    this.publishEnabled = opts.publishable ?? false;
     this.state = initState(this.level);
 
-    this.boardX = Math.round(CENTER_X - BOARD / 2);
+    this.boardX = Math.round(this.centerX() - BOARD / 2);
     this.boardY = opts.top + 30;
 
     this.root = scene.add.container(0, 0);
@@ -259,7 +285,7 @@ export class PlayField {
     const back = this.scene.add.text(this.boardX, y, '← Hub', {
       fontFamily: FONT.mono,
       fontSize: '15px',
-      color: CSS.mutedForeground,
+      color: CSS.foreground,
     }).setOrigin(0, 0.5).setInteractive({ useHandCursor: true });
     back.on('pointerdown', () => this.onExit?.());
     this.root.add(back);
@@ -291,8 +317,6 @@ export class PlayField {
 
   private buildBoard() {
     this.boardGroup = this.scene.add.container(this.boardX, this.boardY);
-    this.pathGraphics = this.scene.add.graphics();
-    this.boardGroup.add(this.pathGraphics);
     this.root.add(this.boardGroup);
 
     for (let r = 0; r < GRID_SIZE; r += 1) {
@@ -304,6 +328,9 @@ export class PlayField {
         this.cells.push(rect);
       }
     }
+
+    this.snakeGraphics = this.scene.add.graphics();
+    this.boardGroup.add(this.snakeGraphics);
   }
 
   private buildProgress() {
@@ -326,23 +353,23 @@ export class PlayField {
   }
 
   private buildDpad() {
-    const cx = CENTER_X;
-    const topY = this.boardY + BOARD + 58;
-    const bw = 50;
-    const bh = 42;
-    const spread = 58;
+    const cx = this.centerX();
+    const topY = this.boardY + BOARD + 62;
+    const bw = 60;
+    const bh = 50;
+    const spread = 64;
     this.makeButton(cx, topY, bw, bh, '▲', PALETTE.primary, () => this.move('UP'));
-    this.makeButton(cx - spread, topY + 48, bw, bh, '◀', PALETTE.primary, () => this.move('LEFT'));
-    this.makeButton(cx, topY + 48, bw, bh, '▼', PALETTE.primary, () => this.move('DOWN'));
-    this.makeButton(cx + spread, topY + 48, bw, bh, '▶', PALETTE.primary, () => this.move('RIGHT'));
+    this.makeButton(cx - spread, topY + 52, bw, bh, '◀', PALETTE.primary, () => this.move('LEFT'));
+    this.makeButton(cx, topY + 52, bw, bh, '▼', PALETTE.primary, () => this.move('DOWN'));
+    this.makeButton(cx + spread, topY + 52, bw, bh, '▶', PALETTE.primary, () => this.move('RIGHT'));
   }
 
   private buildActionButtons() {
-    const y = this.boardY + BOARD + 170;
-    this.makeButton(CENTER_X - 92, y, 160, 38, '⏪ Rewind (Z)', PALETTE.accent, () =>
+    const y = this.boardY + BOARD + 180;
+    this.makeButton(this.centerX() - 88, y, 150, 38, '⏪ Rewind (Z)', PALETTE.accent, () =>
       this.dispatch({ type: 'APPLY_REWIND' })
     );
-    this.makeButton(CENTER_X + 92, y, 160, 38, '↻ Reset (R)', PALETTE.mutedForeground, () =>
+    this.makeButton(this.centerX() + 88, y, 150, 38, '↻ Reset (R)', PALETTE.foreground, () =>
       this.dispatch({ type: 'RESET', level: this.level })
     );
   }
@@ -374,9 +401,15 @@ export class PlayField {
       align: 'center',
       fontStyle: 'bold',
     }).setOrigin(0.5).setVisible(false);
-    this.btnPrimary = this.makeOverlayButton('Continue', 150, PALETTE.primary, CSS.primary, () => this.onOverlayAction());
-    this.btnLeaderboard = this.makeOverlayButton('🏆 Leaderboard', 180, PALETTE.accent, CSS.accent, () => this.openLeaderboard());
-    this.btnClose = this.makeOverlayButton('Close (X)', 130, PALETTE.mutedForeground, CSS.mutedForeground, () => this.dismissOverlay());
+    this.btnPrimary = this.makeOverlayButton('Continue', 118, PALETTE.primary, CSS.primary, () => this.onOverlayAction());
+    this.btnShare = this.makeOverlayButton('Comment', 106, PALETTE.cyan, CSS.cyan, () => {
+      void this.shareToCommunity();
+    });
+    this.btnPublish = this.makeOverlayButton('Publish', 108, PALETTE.accent, CSS.accent, () => {
+      void this.publishPuzzle();
+    });
+    this.btnLeaderboard = this.makeOverlayButton('Scores', 112, PALETTE.accent, CSS.accent, () => this.openLeaderboard());
+    this.btnClose = this.makeOverlayButton('Close', 96, PALETTE.mutedForeground, CSS.mutedForeground, () => this.dismissOverlay());
     this.root.add(this.overlayText);
   }
 
@@ -397,9 +430,9 @@ export class PlayField {
   }
 
   private layoutOverlayButtons(buttons: OverlayButton[], y: number) {
-    const gap = 16;
+    const gap = 8;
     const total = buttons.reduce((sum, b) => sum + b.width, 0) + gap * (buttons.length - 1);
-    let x = CENTER_X - total / 2;
+    let x = this.centerX() - total / 2;
     for (const b of buttons) {
       const cx = x + b.width / 2;
       b.bg.setPosition(cx, y).setVisible(true);
@@ -437,7 +470,7 @@ export class PlayField {
       fontStyle: 'bold',
     }).setOrigin(0.5, 0);
 
-    this.lbStatus = this.scene.add.text(cardX, top + 44, '', {
+    this.lbStatus = this.scene.add.text(cardX, top + 84, '', {
       fontFamily: FONT.mono,
       fontSize: '15px',
       color: CSS.mutedForeground,
@@ -445,8 +478,34 @@ export class PlayField {
 
     this.lbPanel.add([scrim, card, this.lbTitle, this.lbStatus]);
 
+    const scopes: Array<{ scope: LeaderboardScope; label: string }> = [
+      { scope: 'daily', label: 'Day' },
+      { scope: 'weekly', label: 'Week' },
+      { scope: 'all', label: 'All' },
+    ];
+    scopes.forEach((item, index) => {
+      const btnX = cardX - 92 + index * 92;
+      const bg = this.scene.add.rectangle(btnX, top + 50, 78, 30, PALETTE.card, 0.98).setStrokeStyle(1.5, PALETTE.cellBorder);
+      const text = this.scene.add.text(btnX, top + 50, item.label, {
+        fontFamily: FONT.mono,
+        fontSize: '13px',
+        color: CSS.mutedForeground,
+        fontStyle: 'bold',
+      }).setOrigin(0.5);
+      bg.setInteractive({ useHandCursor: true });
+      text.setInteractive({ useHandCursor: true });
+      const select = () => {
+        this.lbScope = item.scope;
+        this.openLeaderboard();
+      };
+      bg.on('pointerdown', select);
+      text.on('pointerdown', select);
+      this.lbScopeButtons.push({ scope: item.scope, bg, text });
+      this.lbPanel.add([bg, text]);
+    });
+
     for (let i = 0; i < 10; i += 1) {
-      const row = this.scene.add.text(left, top + 44 + i * 30, '', {
+      const row = this.scene.add.text(left, top + 118 + i * 26, '', {
         fontFamily: FONT.mono,
         fontSize: '15px',
         color: CSS.foreground,
@@ -475,7 +534,25 @@ export class PlayField {
     const close = () => this.lbPanel.setVisible(false);
     closeBg.on('pointerdown', close);
     closeText.on('pointerdown', close);
-    this.lbPanel.add([closeBg, closeText]);
+
+    const shareBg = this.scene.add.rectangle(cardX - 118, cardY + cardH / 2 - 34, 140, 38, PALETTE.card, 0.98).setStrokeStyle(1.5, PALETTE.cyan);
+    const shareText = this.scene.add.text(cardX - 118, cardY + cardH / 2 - 34, 'Share', {
+      fontFamily: FONT.mono,
+      fontSize: '15px',
+      color: CSS.cyan,
+      fontStyle: 'bold',
+    }).setOrigin(0.5);
+    shareBg.setInteractive({ useHandCursor: true });
+    shareText.setInteractive({ useHandCursor: true });
+    const share = () => {
+      void this.shareToCommunity();
+    };
+    shareBg.on('pointerdown', share);
+    shareText.on('pointerdown', share);
+
+    closeBg.setPosition(cardX + 78, cardY + cardH / 2 - 34);
+    closeText.setPosition(cardX + 78, cardY + cardH / 2 - 34);
+    this.lbPanel.add([shareBg, shareText, closeBg, closeText]);
 
     this.root.add(this.lbPanel);
   }
@@ -486,18 +563,19 @@ export class PlayField {
     this.lbRows.forEach((row) => row.setText(''));
     this.lbYou.setText('');
     this.lbStatus.setText('loading…').setVisible(true);
+    this.updateLeaderboardTabs();
 
-    fetch(`/api/leaderboard/${this.level.id}`)
-      .then((res) => res.json() as Promise<LeaderboardResponse>)
+    fetch(`/api/leaderboard/${this.level.id}?scope=${this.lbScope}`)
+      .then(async (res): Promise<LeaderboardResponse> => res.json())
       .then((data) => this.renderLeaderboard(data))
       .catch(() => this.lbStatus.setText('could not load leaderboard'));
   }
 
   private renderLeaderboard(data: LeaderboardResponse) {
+    this.lbStatus.setText(`${data.label} · ${data.total} completions`).setVisible(true);
     if (data.entries.length === 0) {
-      this.lbStatus.setText('No scores yet — be the first!').setVisible(true);
+      this.lbStatus.setText(`${data.label} · no completions yet`);
     } else {
-      this.lbStatus.setVisible(false);
       data.entries.forEach((entry, i) => {
         const row = this.lbRows[i];
         if (row) {
@@ -515,6 +593,15 @@ export class PlayField {
     }
   }
 
+  private updateLeaderboardTabs() {
+    this.lbScopeButtons.forEach(({ scope, bg, text }) => {
+      const active = scope === this.lbScope;
+      bg.setStrokeStyle(1.5, active ? PALETTE.accent : PALETTE.cellBorder);
+      bg.setFillStyle(active ? PALETTE.accent : PALETTE.card, active ? 0.18 : 0.98);
+      text.setColor(active ? CSS.accent : CSS.mutedForeground);
+    });
+  }
+
   private async submitScore() {
     const body: LeaderboardSubmitRequest = { levelId: this.level.id, moves: this.moveCount };
     try {
@@ -525,6 +612,94 @@ export class PlayField {
       });
     } catch {
       // Network hiccup — the win still stands locally; score just isn't recorded.
+    }
+  }
+
+  private rewindsUsed(): number {
+    return MAX_REWINDS - this.state.rewindsLeft;
+  }
+
+  private buildShareText(): string {
+    return buildChallengeShareText(this.level, {
+      moves: this.moveCount,
+      rewindsUsed: this.rewindsUsed(),
+    });
+  }
+
+  private async copyAndShareResult(message: string) {
+    const text = this.buildShareText();
+    try {
+      await navigator.clipboard?.writeText(text);
+    } catch {
+      // Share sheet still gives the player a native copy/share path.
+    }
+
+    try {
+      await showShareSheet({
+        title: 'Lil Shaper result',
+        text,
+        data: text,
+      });
+      showToast(message);
+    } catch {
+      showToast('Result copied');
+    }
+  }
+
+  private async shareToCommunity() {
+    const body: ShareAttemptRequest = {
+      levelId: this.level.id,
+      moves: this.moveCount,
+      rewindsUsed: this.rewindsUsed(),
+    };
+
+    try {
+      const res = await fetch('/api/share/comment', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+
+      if (!res.ok) {
+        await this.copyAndShareResult('Result ready to share');
+        return;
+      }
+
+      const data: ShareAttemptResponse = await res.json();
+      showToast(data.status === 'posted' ? 'Posted to comments' : 'Already posted');
+      navigateTo(data.commentUrl);
+    } catch {
+      await this.copyAndShareResult('Result ready to share');
+    }
+  }
+
+  private async publishPuzzle() {
+    if (this.publishInFlight) return;
+
+    const body: CommunityPuzzleSubmitRequest = { level: this.level };
+    this.publishInFlight = true;
+    this.btnPublish.text.setText('Publishing…');
+
+    try {
+      const res = await fetch('/api/community-puzzles', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+
+      if (!res.ok) {
+        showToast('Could not publish puzzle');
+        return;
+      }
+
+      const data: CommunityPuzzleSubmitResponse = await res.json();
+      showToast(data.status === 'published' ? 'Published to Community' : 'Already in Community');
+      this.onPublished?.();
+    } catch {
+      showToast('Could not publish puzzle');
+    } finally {
+      this.publishInFlight = false;
+      this.btnPublish.text.setText('Publish');
     }
   }
 
@@ -586,25 +761,18 @@ export class PlayField {
       const isTarget = targetSet.has(key);
       const isFinal = key === finalKey;
       const isOccupied = this.state.gridState[row]?.[col] === 'OCCUPIED';
-      cell.setFillStyle(isOccupied ? PALETTE.primary : isTarget ? PALETTE.target : PALETTE.cellEmpty, isOccupied ? 0.95 : isTarget ? 0.18 : 0.45);
+      cell.setFillStyle(
+        isOccupied ? PALETTE.primary : isTarget ? PALETTE.target : PALETTE.cellEmpty,
+        isOccupied ? 0.14 : isTarget ? 0.18 : 0.45,
+      );
       cell.setStrokeStyle(isOccupied ? 2 : 1, isFinal ? PALETTE.accent : isTarget ? PALETTE.target : PALETTE.cellBorder);
     });
 
-    this.pathGraphics.clear();
-    if (this.state.snakeBody.length > 1) {
-      const points = this.state.snakeBody.map(([r, c]) => new Phaser.Math.Vector2(c * STEP + CELL / 2, r * STEP + CELL / 2));
-      this.pathGraphics.lineStyle(6, this.state.gameStatus === 'CRASHED' ? PALETTE.destructive : PALETTE.primary, 0.7);
-      this.pathGraphics.beginPath();
-      points.forEach((point, index) => {
-        if (index === 0) this.pathGraphics.moveTo(point.x, point.y);
-        else this.pathGraphics.lineTo(point.x, point.y);
-      });
-      this.pathGraphics.strokePath();
-    }
+    this.renderSnake();
 
     const covered = this.state.targetSilhouette.filter(([r, c]) => this.state.gridState[r]?.[c] === 'OCCUPIED').length;
     const total = this.state.targetSilhouette.length;
-    this.progressLabel.setText(`${covered}/${total}`);
+    this.progressLabel.setText(`Filled: ${covered}/${total}`);
     this.progressFill.setSize(total > 0 ? (BOARD * covered) / total : 0, 6);
     this.statusText.setText(this.statusMessage());
 
@@ -623,19 +791,21 @@ export class PlayField {
     const finished = this.state.gameStatus === 'WON' || this.state.gameStatus === 'GAMEOVER';
     if (this.state.gameStatus === 'PLAYING') this.overlayDismissed = false;
 
-    const allButtons = [this.btnPrimary, this.btnLeaderboard, this.btnClose];
+    const allButtons = [this.btnPrimary, this.btnShare, this.btnPublish, this.btnLeaderboard, this.btnClose];
     if (finished && !this.overlayDismissed) {
       const won = this.state.gameStatus === 'WON';
       this.overlay.setVisible(true).setInteractive();
-      this.overlayText.setText(won ? 'SHAPED!' : 'GAME OVER')
+      this.overlayText.setText(won ? 'Congrats!\nYou shaped the snake!' : "So close.\nLet's try again.")
         .setColor(won ? CSS.primary : CSS.destructive)
         .setVisible(true);
       this.btnPrimary.text.setText(won ? 'Continue' : 'Try again').setColor(won ? CSS.primary : CSS.destructive);
       this.btnPrimary.bg.setStrokeStyle(1.5, won ? PALETTE.primary : PALETTE.destructive);
 
       const row: OverlayButton[] = won && this.leaderboardEnabled
-        ? [this.btnPrimary, this.btnLeaderboard, this.btnClose]
-        : [this.btnPrimary, this.btnClose];
+        ? [this.btnPrimary, this.btnShare, this.btnLeaderboard, this.btnClose]
+        : won && this.publishEnabled
+          ? [this.btnPrimary, this.btnPublish, this.btnClose]
+          : [this.btnPrimary, this.btnClose];
       allButtons.forEach((b) => {
         b.bg.setVisible(false);
         b.text.setVisible(false);
@@ -651,16 +821,132 @@ export class PlayField {
     }
   }
 
+  private centerX(): number {
+    return this.scene.scale.width / 2;
+  }
+
   private statusMessage(): string {
     switch (this.state.gameStatus) {
       case 'CRASHED':
         return 'crashed! rewind (Z) or reset (R)';
       case 'WON':
-        return 'shaped!';
+        return 'you shaped the snake!';
       case 'GAMEOVER':
-        return 'out of rewinds — reset (R)';
+        return "so close — let's try again";
       default:
         return this.state.snakeBody.length <= 1 ? 'start moving…' : 'trace the shape';
     }
+  }
+
+  private renderSnake() {
+    const body = this.state.snakeBody;
+    this.snakeGraphics.clear();
+    if (body.length === 0) return;
+
+    const crashed = this.state.gameStatus === 'CRASHED' || this.state.gameStatus === 'GAMEOVER';
+    const shadow = 0x030308;
+    const outline = crashed ? 0x661827 : 0x064a18;
+    const skin = crashed ? PALETTE.destructive : PALETTE.primary;
+    const belly = crashed ? 0xff8ca0 : 0xa9ff8f;
+    const shine = crashed ? 0xffc0cb : PALETTE.cyan;
+    const bodySize = 19;
+    const headSize = 23;
+    const tailSize = 14;
+
+    const centers = body.map(([r, c]) => new Phaser.Math.Vector2(c * STEP + CELL / 2, r * STEP + CELL / 2));
+
+    this.drawSnakeConnections(centers, bodySize + 8, shadow, 0.5);
+    this.drawSnakeSegments(centers, bodySize + 8, shadow, 0.5);
+
+    this.drawSnakeConnections(centers, bodySize + 3, outline, 1);
+    this.drawSnakeSegments(centers, bodySize + 3, outline, 1);
+
+    this.drawSnakeConnections(centers, bodySize, skin, 1);
+    this.drawSnakeSegments(centers, bodySize, skin, 1);
+
+    this.drawBellyDots(centers, belly, body.length === 1 ? 0.75 : 0.5);
+    this.drawTail(centers, tailSize, skin, outline);
+    this.drawHead(centers, headSize, skin, outline, shine);
+  }
+
+  private drawSnakeConnections(points: Phaser.Math.Vector2[], size: number, color: number, alpha: number) {
+    this.snakeGraphics.fillStyle(color, alpha);
+    const radius = Math.max(4, size / 2);
+    for (let i = 1; i < points.length; i += 1) {
+      const prev = points[i - 1];
+      const current = points[i];
+      if (!prev || !current) continue;
+
+      const x = Math.min(prev.x, current.x) - size / 2;
+      const y = Math.min(prev.y, current.y) - size / 2;
+      const width = Math.abs(current.x - prev.x) + size;
+      const height = Math.abs(current.y - prev.y) + size;
+      this.snakeGraphics.fillRoundedRect(x, y, width, height, radius);
+    }
+  }
+
+  private drawSnakeSegments(points: Phaser.Math.Vector2[], size: number, color: number, alpha: number) {
+    this.snakeGraphics.fillStyle(color, alpha);
+    const radius = Math.max(4, size / 2.6);
+    points.forEach((point) => {
+      this.snakeGraphics.fillRoundedRect(point.x - size / 2, point.y - size / 2, size, size, radius);
+    });
+  }
+
+  private drawBellyDots(points: Phaser.Math.Vector2[], color: number, alpha: number) {
+    this.snakeGraphics.fillStyle(color, alpha);
+    points.slice(0, -1).forEach((point, index) => {
+      if (index % 2 !== 0) return;
+      this.snakeGraphics.fillCircle(point.x, point.y, 3.2);
+    });
+  }
+
+  private drawTail(points: Phaser.Math.Vector2[], size: number, skin: number, outline: number) {
+    const tail = points[0];
+    const next = points[1];
+    if (!tail || !next) return;
+
+    const dir = new Phaser.Math.Vector2(tail.x - next.x, tail.y - next.y).normalize();
+    const perp = new Phaser.Math.Vector2(-dir.y, dir.x);
+    const tip = new Phaser.Math.Vector2(tail.x + dir.x * 10, tail.y + dir.y * 10);
+    const left = new Phaser.Math.Vector2(tail.x - dir.x * 5 + perp.x * size / 2, tail.y - dir.y * 5 + perp.y * size / 2);
+    const right = new Phaser.Math.Vector2(tail.x - dir.x * 5 - perp.x * size / 2, tail.y - dir.y * 5 - perp.y * size / 2);
+
+    this.snakeGraphics.fillStyle(outline, 1);
+    this.snakeGraphics.fillTriangle(tip.x + dir.x * 3, tip.y + dir.y * 3, left.x, left.y, right.x, right.y);
+    this.snakeGraphics.fillStyle(skin, 1);
+    this.snakeGraphics.fillTriangle(tip.x, tip.y, left.x, left.y, right.x, right.y);
+  }
+
+  private drawHead(points: Phaser.Math.Vector2[], size: number, skin: number, outline: number, shine: number) {
+    const head = points[points.length - 1];
+    if (!head) return;
+
+    const neck = points.length > 1 ? points[points.length - 2] : undefined;
+    const dir = neck
+      ? new Phaser.Math.Vector2(head.x - neck.x, head.y - neck.y).normalize()
+      : new Phaser.Math.Vector2(1, 0);
+    const perp = new Phaser.Math.Vector2(-dir.y, dir.x);
+    const radius = size / 2.3;
+
+    this.snakeGraphics.fillStyle(outline, 1);
+    this.snakeGraphics.fillRoundedRect(head.x - (size + 4) / 2, head.y - (size + 4) / 2, size + 4, size + 4, radius + 2);
+    this.snakeGraphics.fillStyle(skin, 1);
+    this.snakeGraphics.fillRoundedRect(head.x - size / 2, head.y - size / 2, size, size, radius);
+
+    this.snakeGraphics.fillStyle(shine, 0.55);
+    this.snakeGraphics.fillCircle(head.x - dir.x * 3 - perp.x * 4, head.y - dir.y * 3 - perp.y * 4, 3);
+
+    const eyeForward = 5;
+    const eyeSide = 5;
+    const leftEye = new Phaser.Math.Vector2(head.x + dir.x * eyeForward + perp.x * eyeSide, head.y + dir.y * eyeForward + perp.y * eyeSide);
+    const rightEye = new Phaser.Math.Vector2(head.x + dir.x * eyeForward - perp.x * eyeSide, head.y + dir.y * eyeForward - perp.y * eyeSide);
+
+    this.snakeGraphics.fillStyle(0xffffff, 1);
+    this.snakeGraphics.fillCircle(leftEye.x, leftEye.y, 3.4);
+    this.snakeGraphics.fillCircle(rightEye.x, rightEye.y, 3.4);
+    this.snakeGraphics.fillStyle(0x050510, 1);
+    this.snakeGraphics.fillCircle(leftEye.x + dir.x * 0.8, leftEye.y + dir.y * 0.8, 1.5);
+    this.snakeGraphics.fillCircle(rightEye.x + dir.x * 0.8, rightEye.y + dir.y * 0.8, 1.5);
   }
 }

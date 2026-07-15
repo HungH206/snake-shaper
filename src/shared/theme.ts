@@ -1,5 +1,5 @@
 /**
- * Design tokens — single source of truth for the Snake Shaper palette.
+ * Design tokens — single source of truth for the Lil Shaper palette.
  *
  * Mirrors the design system in `src/client/theme.css`. A Phaser canvas cannot
  * read CSS custom properties, so colors live here as values the scenes import

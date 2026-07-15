@@ -6,21 +6,28 @@ import { PlayField } from '../PlayField';
 export class SnakeGameScene extends Scene {
   private level!: LevelConfig;
   private completeCallback: (() => void) | undefined;
+  private publishable = false;
   private playField?: PlayField;
 
   constructor() {
     super('SnakeGame');
   }
 
-  init(data: { level: LevelConfig; onComplete?: () => void }) {
-    this.level = data.level;
-    this.completeCallback = data.onComplete;
+  init(data: { level?: LevelConfig; onComplete?: () => void; publishable?: boolean } = {}) {
+    if (data.level) this.level = data.level;
+    if (data.onComplete) this.completeCallback = data.onComplete;
+    if (data.publishable !== undefined) this.publishable = data.publishable;
   }
 
   create() {
+    if (!this.level) {
+      this.scene.start('Hub');
+      return;
+    }
+
     this.cameras.main.setBackgroundColor(CSS.boardBg);
 
-    this.add.text(512, 30, this.level.name, {
+    this.add.text(this.scale.width / 2, 30, this.level.name, {
       fontFamily: FONT.mono,
       fontSize: '24px',
       color: CSS.primary,
@@ -32,6 +39,8 @@ export class SnakeGameScene extends Scene {
       top: 74,
       onComplete: () => this.completeCallback?.(),
       onExit: () => this.scene.start('Hub'),
+      publishable: this.publishable,
+      onPublished: () => this.scene.start('Community'),
     });
 
     this.events.once('shutdown', () => this.playField?.destroy());

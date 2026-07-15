@@ -1,14 +1,11 @@
-import { StartGame } from './game';
+import { requestExpandedMode, showToast } from '@devvit/web/client';
 
-let gameStarted = false;
+const playButton = document.querySelector<HTMLButtonElement>('[data-play]');
 
-function init() {
-  const existingHost = document.getElementById('game-container');
-  if (existingHost && !gameStarted) {
-    existingHost.style.display = 'block';
-    StartGame('game-container');
-    gameStarted = true;
+playButton?.addEventListener('click', (event) => {
+  try {
+    requestExpandedMode(event, 'game');
+  } catch {
+    showToast('Open the post to play wide');
   }
-}
-
-init();
+});

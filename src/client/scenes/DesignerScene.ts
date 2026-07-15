@@ -1,6 +1,9 @@
 import { Scene, GameObjects } from 'phaser';
+import { showShareSheet, showToast } from '@devvit/web/client';
 import { GRID_SIZE, type Coord, type LevelConfig } from '../../shared/puzzles';
+import { buildPuzzleShareText, encodeCustomPuzzle } from '../../shared/customPuzzle';
 import { PALETTE, CSS, FONT } from '../../shared/theme';
+import type { CommunityPuzzleSubmitRequest, CommunityPuzzleSubmitResponse } from '../../shared/api';
 
 type Tool = 'PAINT' | 'ERASE' | 'START' | 'END';
 
@@ -8,7 +11,7 @@ const CELL = 36;
 const GAP = 4;
 const STEP = CELL + GAP;
 const BOARD = GRID_SIZE * CELL + (GRID_SIZE - 1) * GAP;
-const BOARD_X = Math.round((1024 - BOARD) / 2);
+const BOARD_X = Math.round((540 - BOARD) / 2);
 const BOARD_Y = 165;
 
 const MIN_TARGETS = 3;
@@ -40,6 +43,11 @@ export class DesignerScene extends Scene {
   private counterNumber!: GameObjects.Text;
   private playBg!: GameObjects.Rectangle;
   private playLabel!: GameObjects.Text;
+  private shareBg!: GameObjects.Rectangle;
+  private shareLabel!: GameObjects.Text;
+  private publishBg!: GameObjects.Rectangle;
+  private publishLabel!: GameObjects.Text;
+  private publishInFlight = false;
 
   constructor() {
     super('Designer');
@@ -63,6 +71,8 @@ export class DesignerScene extends Scene {
     this.buildValidationPanel();
     this.buildCounter();
     this.buildPlayButton();
+    this.buildShareButton();
+    this.buildPublishButton();
     this.buildFooter();
 
     this.input.on('pointerup', () => {
@@ -78,21 +88,21 @@ export class DesignerScene extends Scene {
     const back = this.add.text(40, 30, '← Hub', {
       fontFamily: FONT.mono,
       fontSize: '16px',
-      color: CSS.mutedForeground,
+      color: CSS.foreground,
     }).setInteractive({ useHandCursor: true });
     back.on('pointerdown', () => this.scene.start('Hub'));
 
-    this.add.text(512, 38, '✎ Grid Designer', {
+    this.add.text(this.scale.width / 2, 38, '✎ Grid Designer', {
       fontFamily: FONT.mono,
       fontSize: '24px',
       color: CSS.foreground,
       fontStyle: 'bold',
     }).setOrigin(0.5, 0);
 
-    const clearBg = this.add.rectangle(984, 44, 96, 34, PALETTE.card, 0.95)
+    const clearBg = this.add.rectangle(this.scale.width - 24, 44, 96, 34, PALETTE.card, 0.95)
       .setOrigin(1, 0.5)
       .setStrokeStyle(1, PALETTE.destructive);
-    const clearLabel = this.add.text(936, 44, '✕ Clear', {
+    const clearLabel = this.add.text(this.scale.width - 72, 44, '✕ Clear', {
       fontFamily: FONT.mono,
       fontSize: '15px',
       color: CSS.destructive,
@@ -105,11 +115,11 @@ export class DesignerScene extends Scene {
   }
 
   private buildToolbar() {
-    const chipW = 132;
+    const chipW = 116;
     const chipH = 46;
-    const gap = 14;
+    const gap = 10;
     const total = TOOLS.length * chipW + (TOOLS.length - 1) * gap;
-    const startX = Math.round((1024 - total) / 2);
+    const startX = Math.round((this.scale.width - total) / 2);
     const y = 100;
 
     TOOLS.forEach((t, index) => {
@@ -118,7 +128,7 @@ export class DesignerScene extends Scene {
         .setStrokeStyle(2, PALETTE.cellBorder);
       const label = this.add.text(cx, y, `${t.icon}  ${t.label}`, {
         fontFamily: FONT.mono,
-        fontSize: '17px',
+        fontSize: '15px',
         color: CSS.mutedForeground,
         fontStyle: 'bold',
       }).setOrigin(0.5);
@@ -155,9 +165,9 @@ export class DesignerScene extends Scene {
   }
 
   private buildValidationPanel() {
-    const x = 150;
+    const x = 24;
     const y = BOARD_Y + BOARD + 24;
-    this.add.rectangle(x, y, 380, 120, PALETTE.card, 0.9)
+    this.add.rectangle(x, y, 320, 120, PALETTE.card, 0.9)
       .setOrigin(0, 0)
       .setStrokeStyle(1, PALETTE.cellBorder);
 
@@ -169,7 +179,7 @@ export class DesignerScene extends Scene {
   }
 
   private buildCounter() {
-    const x = 820;
+    const x = 434;
     const y = BOARD_Y + BOARD + 24;
     this.add.text(x, y, 'cells painted', {
       fontFamily: FONT.mono,
@@ -185,13 +195,13 @@ export class DesignerScene extends Scene {
   }
 
   private buildPlayButton() {
-    const x = 820;
-    const y = BOARD_Y + BOARD + 92;
-    this.playBg = this.add.rectangle(x, y, 160, 52, PALETTE.card, 0.95)
+    const x = 434;
+    const y = BOARD_Y + BOARD + 64;
+    this.playBg = this.add.rectangle(x, y, 160, 42, PALETTE.card, 0.95)
       .setStrokeStyle(2, PALETTE.mutedForeground);
     this.playLabel = this.add.text(x, y, '▶ Play', {
       fontFamily: FONT.mono,
-      fontSize: '20px',
+      fontSize: '18px',
       color: CSS.mutedForeground,
       fontStyle: 'bold',
     }).setOrigin(0.5);
@@ -199,8 +209,46 @@ export class DesignerScene extends Scene {
     this.playLabel.on('pointerdown', () => this.play());
   }
 
+  private buildShareButton() {
+    const x = 434;
+    const y = BOARD_Y + BOARD + 110;
+    this.shareBg = this.add.rectangle(x, y, 160, 42, PALETTE.card, 0.95)
+      .setStrokeStyle(2, PALETTE.mutedForeground);
+    this.shareLabel = this.add.text(x, y, '↗ Share', {
+      fontFamily: FONT.mono,
+      fontSize: '18px',
+      color: CSS.mutedForeground,
+      fontStyle: 'bold',
+    }).setOrigin(0.5);
+    this.shareBg.on('pointerdown', () => {
+      void this.sharePuzzle();
+    });
+    this.shareLabel.on('pointerdown', () => {
+      void this.sharePuzzle();
+    });
+  }
+
+  private buildPublishButton() {
+    const x = 434;
+    const y = BOARD_Y + BOARD + 156;
+    this.publishBg = this.add.rectangle(x, y, 160, 42, PALETTE.card, 0.95)
+      .setStrokeStyle(2, PALETTE.mutedForeground);
+    this.publishLabel = this.add.text(x, y, '★ Publish', {
+      fontFamily: FONT.mono,
+      fontSize: '17px',
+      color: CSS.mutedForeground,
+      fontStyle: 'bold',
+    }).setOrigin(0.5);
+    this.publishBg.on('pointerdown', () => {
+      void this.publishPuzzle();
+    });
+    this.publishLabel.on('pointerdown', () => {
+      void this.publishPuzzle();
+    });
+  }
+
   private buildFooter() {
-    this.add.text(512, 748, 'click or drag to paint · use tools to set start ● and end ◆', {
+    this.add.text(this.scale.width / 2, 748, 'click or drag to paint · use tools to set start ● and end ◆', {
       fontFamily: FONT.mono,
       fontSize: '13px',
       color: CSS.mutedForeground,
@@ -309,6 +357,8 @@ export class DesignerScene extends Scene {
 
     const valid = hasTargets && hasStart && hasEnd && distinct;
     this.setPlayEnabled(valid);
+    this.setShareEnabled(valid);
+    this.setPublishEnabled(valid);
   }
 
   private setRow(text: GameObjects.Text, ok: boolean, label: string) {
@@ -329,6 +379,34 @@ export class DesignerScene extends Scene {
     }
   }
 
+  private setShareEnabled(enabled: boolean) {
+    this.shareBg.setStrokeStyle(2, enabled ? PALETTE.cyan : PALETTE.mutedForeground);
+    this.shareBg.setAlpha(enabled ? 1 : 0.5);
+    this.shareLabel.setColor(enabled ? CSS.cyan : CSS.mutedForeground).setAlpha(enabled ? 1 : 0.5);
+    if (enabled) {
+      this.shareBg.setInteractive({ useHandCursor: true });
+      this.shareLabel.setInteractive({ useHandCursor: true });
+    } else {
+      this.shareBg.disableInteractive();
+      this.shareLabel.disableInteractive();
+    }
+  }
+
+  private setPublishEnabled(enabled: boolean) {
+    const interactive = enabled && !this.publishInFlight;
+    this.publishBg.setStrokeStyle(2, interactive ? PALETTE.accent : PALETTE.mutedForeground);
+    this.publishBg.setAlpha(interactive ? 1 : 0.5);
+    this.publishLabel.setColor(interactive ? CSS.accent : CSS.mutedForeground).setAlpha(interactive ? 1 : 0.5);
+    this.publishLabel.setText(this.publishInFlight ? 'Publishing…' : '★ Publish');
+    if (interactive) {
+      this.publishBg.setInteractive({ useHandCursor: true });
+      this.publishLabel.setInteractive({ useHandCursor: true });
+    } else {
+      this.publishBg.disableInteractive();
+      this.publishLabel.disableInteractive();
+    }
+  }
+
   private clearAll() {
     this.painted = Array.from({ length: GRID_SIZE }, () => Array(GRID_SIZE).fill(false));
     this.start = null;
@@ -338,6 +416,16 @@ export class DesignerScene extends Scene {
   }
 
   private play() {
+    const level = this.buildCustomLevel();
+    if (!level) return;
+    this.scene.start('SnakeGame', {
+      level,
+      publishable: true,
+      onComplete: () => this.scene.start('Hub'),
+    });
+  }
+
+  private buildCustomLevel(): LevelConfig | null {
     const targets: Coord[] = [];
     for (let r = 0; r < GRID_SIZE; r += 1) {
       const row = this.painted[r] ?? [];
@@ -345,17 +433,71 @@ export class DesignerScene extends Scene {
         if (row[c]) targets.push([r, c]);
       }
     }
-    if (!this.start || !this.finalNode || targets.length < MIN_TARGETS) return;
+    if (!this.start || !this.finalNode || targets.length < MIN_TARGETS) return null;
 
-    const level: LevelConfig = {
+    return {
       id: 999,
-      name: 'Custom',
+      name: 'Shared Puzzle',
       shape: '✏',
       difficulty: 'Medium',
       start: this.start,
       finalNode: this.finalNode,
       targets,
     };
-    this.scene.start('SnakeGame', { level, onComplete: () => this.scene.start('Hub') });
+  }
+
+  private async sharePuzzle() {
+    const level = this.buildCustomLevel();
+    if (!level) return;
+
+    const data = encodeCustomPuzzle(level);
+    const text = buildPuzzleShareText(level);
+    try {
+      await navigator.clipboard?.writeText(data);
+    } catch {
+      // Native share still carries the playable payload.
+    }
+
+    try {
+      await showShareSheet({
+        title: 'Try my Lil Shaper puzzle',
+        text,
+        data,
+      });
+      showToast('Puzzle ready to share');
+    } catch {
+      showToast('Puzzle code copied');
+    }
+  }
+
+  private async publishPuzzle() {
+    if (this.publishInFlight) return;
+    const level = this.buildCustomLevel();
+    if (!level) return;
+
+    const body: CommunityPuzzleSubmitRequest = { level };
+    this.publishInFlight = true;
+    this.renderValidation();
+    try {
+      const res = await fetch('/api/community-puzzles', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+
+      if (!res.ok) {
+        showToast('Could not publish puzzle');
+        return;
+      }
+
+      const data: CommunityPuzzleSubmitResponse = await res.json();
+      showToast(data.status === 'published' ? 'Published to Community' : 'Already in Community');
+      this.scene.start('Community');
+    } catch {
+      showToast('Could not publish puzzle');
+    } finally {
+      this.publishInFlight = false;
+      this.renderValidation();
+    }
   }
 }

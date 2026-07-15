@@ -1,4 +1,6 @@
 import { Scene } from 'phaser';
+import { getShareData } from '@devvit/web/client';
+import { decodeCustomPuzzle } from '../../shared/customPuzzle';
 
 // Faces to warm up before the first canvas text renders. Phaser draws text to
 // the canvas immediately, so a web font that isn't loaded yet paints with the
@@ -16,7 +18,14 @@ export class Preloader extends Scene {
   }
 
   create() {
-    void this.ensureFonts().then(() => this.scene.start('Hub'));
+    void this.ensureFonts().then(() => {
+      const sharedLevel = decodeCustomPuzzle(getShareData());
+      if (sharedLevel) {
+        this.scene.start('SnakeGame', { level: sharedLevel, onComplete: () => this.scene.start('Hub') });
+      } else {
+        this.scene.start('Hub');
+      }
+    });
   }
 
   private async ensureFonts(): Promise<void> {

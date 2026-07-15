@@ -12,7 +12,7 @@ export class DailyScene extends Scene {
     super('Daily');
   }
 
-  init(data: { level?: LevelConfig }) {
+  init(data: { level?: LevelConfig } = {}) {
     const daily = getDailyLevel();
     this.level = data.level ?? daily.level;
     this.dateStr = daily.dateStr;
@@ -21,20 +21,21 @@ export class DailyScene extends Scene {
   create() {
     this.cameras.main.setBackgroundColor(CSS.backgroundAlt);
 
-    this.add.text(512, 14, '📅 Daily Challenge', {
+    const centerX = this.scale.width / 2;
+    this.add.text(centerX, 14, '📅 Daily Challenge', {
       fontFamily: FONT.mono,
       fontSize: '22px',
       color: CSS.foreground,
       fontStyle: 'bold',
     }).setOrigin(0.5, 0);
 
-    this.add.text(512, 44, this.dateStr, {
+    this.add.text(centerX, 44, this.dateStr, {
       fontFamily: FONT.mono,
       fontSize: '14px',
       color: CSS.accent,
     }).setOrigin(0.5, 0);
 
-    this.buildPill(512, 78, `#${this.level.id} — ${this.level.name}`, PALETTE.accent, CSS.accent);
+    this.buildPill(centerX, 78, `#${this.level.id} — ${this.level.name}`, PALETTE.accent, CSS.accent);
 
     this.playField = new PlayField(this, {
       level: this.level,
